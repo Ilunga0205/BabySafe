@@ -1,12 +1,36 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { StyleSheet } from 'react-native';
+
+// Screens
+import Welcome from './screens/Welcome';
+import Register from './screens/Register'; // You will create this later
+import Policies from './screens/Policies'
+import SignIn from './screens/SignIn';
+import ForgotPassword from './screens/ForgotPassword';
+import Home from './screens/Home';
+import Vaccination from './screens/Vaccination'
+import Growth from './screens/Growth';
+
+const Stack = createNativeStackNavigator();
 
 export default function App() {
   return (
-    <View style={styles.container}>
-      <Text>Open up App.js to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <NavigationContainer>
+      <StatusBar style="dark" />
+      <Stack.Navigator initialRouteName="Welcome" screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Welcome" component={Welcome} />
+      
+        <Stack.Screen name="Register" component={Register} />
+        <Stack.Screen name="SignIn" component={SignIn} />
+        <Stack.Screen name="Policies" component={Policies} />
+        <Stack.Screen name="ForgotPassword" component={ForgotPassword}/>
+        <Stack.Screen name="Home" component={Home}/>
+        <Stack.Screen name="Vaccination" component={Vaccination}/>
+        <Stack.Screen name="Growth" component={Growth}/>
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
 
@@ -14,7 +38,5 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });
