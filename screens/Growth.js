@@ -142,100 +142,6 @@ export default function Growth({ route, navigation }) {
     );
   };
 
-  // Render daily insights/summary if available
-  const renderDailySummary = () => {
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    const hasEntryToday = !!journalEntries[todayStr];
-    
-    return (
-      <View style={styles.dailySummary}>
-        <Text style={styles.dailySummaryTitle}>
-          {hasEntryToday ? 'Today\'s Entry' : 'No Entry Yet Today'}
-        </Text>
-        
-        {hasEntryToday ? (
-          <View style={styles.todayEntryPreview}>
-            {/* Show preview of today's entry */}
-            <Text style={styles.todayEntryText}>
-              {journalEntries[todayStr].notes || 'Entry added for today!'}
-            </Text>
-            
-            {journalEntries[todayStr].growthData && (
-              <View style={styles.growthDataPreview}>
-                <Text style={styles.growthPreviewText}>
-                  Weight: {journalEntries[todayStr].growthData.weight.toFixed(2)} kg
-                </Text>
-                <Text style={styles.growthPreviewText}>
-                  Height: {journalEntries[todayStr].growthData.height.toFixed(1)} cm
-                </Text>
-              </View>
-            )}
-          </View>
-        ) : (
-          <TouchableOpacity 
-            style={styles.addTodayButton}
-            onPress={() => {
-              const today = {
-                date: new Date(),
-                dateStr: todayStr,
-                day: today.getDate(),
-                hasEntry: false
-              };
-              handleDayPress(today);
-            }}
-          >
-            <Text style={styles.addTodayButtonText}>Add Today's Entry</Text>
-            <MaterialIcons name="add-circle-outline" size={20} color={colors.primary} />
-          </TouchableOpacity>
-        )}
-      </View>
-    );
-  };
-
-  // Tab navigation
-  const renderTabs = () => {
-    return (
-      <View style={styles.tabsContainer}>
-        {['chart', 'journal', 'milestones'].map((tab) => {
-          const isActive = activeTab === tab;
-          let icon;
-          let label;
-          
-          switch(tab) {
-            case 'chart':
-              icon = <MaterialIcons name="bar-chart" size={18} color={isActive ? colors.primary : colors.textDark} />;
-              label = "Growth Charts";
-              break;
-            case 'journal':
-              icon = <MaterialIcons name="calendar-today" size={18} color={isActive ? colors.primary : colors.textDark} />;
-              label = "BabyDays";
-              break;
-            case 'milestones':
-              icon = <MaterialIcons name="emoji-events" size={18} color={isActive ? colors.primary : colors.textDark} />;
-              label = "Milestones";
-              break;
-            default:
-              break;
-          }
-          
-          return (
-            <TouchableOpacity 
-              key={tab}
-              style={[styles.tab, isActive && styles.activeTab]}
-              onPress={() => setActiveTab(tab)}
-            >
-              {icon}
-              <Text style={[styles.tabText, isActive && styles.activeTabText]}>
-                {label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    );
-  };
-
   // Calculate header padding based on platform and insets
   const headerTopPadding = Platform.OS === 'ios' ? insets.top : StatusBar.currentHeight || 24;
 
@@ -326,18 +232,25 @@ export default function Growth({ route, navigation }) {
       <View style={styles.content}>
         {activeTab === 'journal' && (
           <>
-            {renderDailySummary()}
             {renderMonthHeader()}
             
             {loading ? (
               <ActivityIndicator size="large" color={colors.primary} style={styles.loader} />
             ) : (
               <BabyTimeline
-                month={currentMonth}
-                journalEntries={journalEntries}
-                onDayPress={handleDayPress}
-                colors={colors}
-              />
+              month={currentMonth}
+              journalEntries={journalEntries}
+              onDayPress={handleDayPress}
+              onAddEntry={handleDayPress}
+              onViewEntry={(day) => {
+                navigation.navigate('BabyTimelineDetails', {
+                  entry: journalEntries[day.dateStr],
+                  dateStr: day.dateStr
+                });
+              }}
+              colors={colors}
+            />
+            
             )}
           </>
         )}

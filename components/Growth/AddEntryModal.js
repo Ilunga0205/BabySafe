@@ -16,6 +16,7 @@ import {
 import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import { Audio } from 'expo-av'; // Changed the import style
 import colors from '../../constants/colors';
 
 const AddEntryModal = ({ visible, day, onClose, onSave, existingEntry }) => {
@@ -36,6 +37,12 @@ const AddEntryModal = ({ visible, day, onClose, onSave, existingEntry }) => {
   // Current step in multi-step form
   const [currentStep, setCurrentStep] = useState(1);
   const [newMilestone, setNewMilestone] = useState('');
+  
+  // Audio recording states
+  const [recording, setRecording] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [recordingTimer, setRecordingTimer] = useState(null);
   
   // Reset form when modal opens or when existing entry changes
   useEffect(() => {
@@ -72,6 +79,15 @@ const AddEntryModal = ({ visible, day, onClose, onSave, existingEntry }) => {
       setCurrentStep(1);
     }
   }, [visible, existingEntry]);
+  
+  // Clean up timer when component unmounts
+  useEffect(() => {
+    return () => {
+      if (recordingTimer) {
+        clearInterval(recordingTimer);
+      }
+    };
+  }, [recordingTimer]);
 
   const toggleEntryType = (type) => {
     setEntryData(prev => {
@@ -111,6 +127,7 @@ const AddEntryModal = ({ visible, day, onClose, onSave, existingEntry }) => {
   };
 
   const pickImage = async () => {
+    // Request permissions directly from ImagePicker
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
     
     if (permissionResult.granted === false) {
@@ -140,6 +157,7 @@ const AddEntryModal = ({ visible, day, onClose, onSave, existingEntry }) => {
   };
 
   const takePicture = async () => {
+    // Request camera permissions directly from ImagePicker
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     
     if (status !== 'granted') {
@@ -186,6 +204,111 @@ const AddEntryModal = ({ visible, day, onClose, onSave, existingEntry }) => {
       }));
     }
   };
+  
+  // Audio recording functions - FIXED
+  const startRecording = async () => {
+    try {
+      // Request permissions using the Audio API directly
+      const { status } = await Audio.requestPermissionsAsync();
+      
+      if (status !== 'granted') {
+        alert('Permission Required', 'We need microphone permissions to record audio.');
+        return;
+      }
+      
+      // Set up recorder
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+      
+      // Start recording
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      setRecording(recording);
+      setIsRecording(true);
+      
+      // Set up timer
+      let seconds = 0;
+      const timer = setInterval(() => {
+        seconds += 1;
+        setRecordingTime(seconds);
+      }, 1000);
+      
+      setRecordingTimer(timer);
+      
+    } catch (error) {
+      console.error('Failed to start recording', error);
+      alert('Error', 'Failed to start recording: ' + error.message);
+    }
+  };
+  
+  const stopRecording = async () => {
+    try {
+      if (!recording) return;
+      
+      // Stop the timer
+      if (recordingTimer) {
+        clearInterval(recordingTimer);
+        setRecordingTimer(null);
+      }
+      
+      // Stop recording
+      await recording.stopAndUnloadAsync();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+      });
+      
+      const uri = recording.getURI();
+      
+      // Add to media items
+      if (uri) {
+        const timestamp = new Date().toISOString();
+        const filename = `audio_${timestamp}.m4a`;
+        
+        const newMedia = {
+          type: 'audio',
+          uri: uri,
+          filename: filename,
+          duration: recordingTime, // Store duration in seconds
+        };
+        
+        setEntryData(prev => ({
+          ...prev,
+          mediaItems: [...prev.mediaItems, newMedia]
+        }));
+      }
+      
+      // Reset states
+      setRecording(null);
+      setIsRecording(false);
+      setRecordingTime(0);
+      
+    } catch (error) {
+      console.error('Failed to stop recording', error);
+      alert('Error', 'Failed to stop recording: ' + error.message);
+    }
+  };
+  
+  // Format recording time as MM:SS
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+  
+  // Play audio recording
+  const playAudio = async (uri) => {
+    try {
+      const sound = new Audio.Sound();
+      await sound.loadAsync({ uri });
+      await sound.playAsync();
+    } catch (error) {
+      console.error('Failed to play audio', error);
+      alert('Error', 'Failed to play the audio: ' + error.message);
+    }
+  };
 
   const removeMedia = (index) => {
     setEntryData(prev => ({
@@ -201,15 +324,47 @@ const AddEntryModal = ({ visible, day, onClose, onSave, existingEntry }) => {
     }));
   };
 
+  // Determine the next step to show based on selected entry types
+  const getNextStep = (currentStep) => {
+    if (currentStep === 1) {
+      if (entryData.entryTypes.includes('growth') || entryData.entryTypes.includes('milestone')) {
+        return 2;
+      } else if (entryData.entryTypes.includes('media')) {
+        return 3;
+      }
+      // If only note is selected, there's no next step
+      return null;
+    } else if (currentStep === 2) {
+      if (entryData.entryTypes.includes('media')) {
+        return 3;
+      }
+      // If no media, there's no next step
+      return null;
+    }
+    // No more steps after 3
+    return null;
+  };
+
   // Handle next step in the form
   const handleNextStep = () => {
-    // You can add validation here if needed
-    setCurrentStep(currentStep + 1);
+    const nextStep = getNextStep(currentStep);
+    if (nextStep) {
+      setCurrentStep(nextStep);
+    }
   };
 
   // Handle previous step in the form
   const handlePreviousStep = () => {
-    setCurrentStep(currentStep - 1);
+    if (currentStep === 3 && !entryData.entryTypes.includes('growth') && !entryData.entryTypes.includes('milestone')) {
+      setCurrentStep(1);
+    } else {
+      setCurrentStep(currentStep - 1);
+    }
+  };
+
+  // Check if there are any more steps
+  const hasMoreSteps = () => {
+    return getNextStep(currentStep) !== null;
   };
 
   const handleSave = () => {
@@ -233,11 +388,22 @@ const AddEntryModal = ({ visible, day, onClose, onSave, existingEntry }) => {
     }
   };
   
-  // Render step indicators
+  // Render step indicators - now based on actual steps needed
   const renderStepIndicators = () => {
+    // Determine how many steps are needed based on selected entry types
+    let totalSteps = 1; // Always have at least Step 1 (Notes)
+    
+    if (entryData.entryTypes.includes('growth') || entryData.entryTypes.includes('milestone')) {
+      totalSteps++;
+    }
+    
+    if (entryData.entryTypes.includes('media')) {
+      totalSteps++;
+    }
+    
     return (
       <View style={styles.stepIndicatorContainer}>
-        {[1, 2, 3].map((step) => (
+        {Array.from({ length: totalSteps }, (_, i) => i + 1).map((step) => (
           <View 
             key={step} 
             style={[
@@ -402,74 +568,78 @@ const AddEntryModal = ({ visible, day, onClose, onSave, existingEntry }) => {
           <Text style={styles.stepSubtitle}>Track your baby's development</Text>
         </View>
 
-        {/* Growth Data */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.sectionSubtitle}>Growth Data</Text>
+        {/* Growth Data - Only show if growth type is selected */}
+        {entryData.entryTypes.includes('growth') && (
+          <View style={styles.inputGroup}>
+            <Text style={styles.sectionSubtitle}>Growth Data</Text>
+              
+            <Text style={styles.inputLabel}>Weight</Text>
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.growthInput}
+                placeholder="0.0"
+                keyboardType="decimal-pad"
+                value={entryData.growthData.weight}
+                onChangeText={(value) => updateGrowthData('weight', value)}
+              />
+              <Text style={styles.inputUnit}>kg</Text>
+            </View>
             
-          <Text style={styles.inputLabel}>Weight</Text>
-          <View style={styles.inputRow}>
-            <TextInput
-              style={styles.growthInput}
-              placeholder="0.0"
-              keyboardType="decimal-pad"
-              value={entryData.growthData.weight}
-              onChangeText={(value) => updateGrowthData('weight', value)}
-            />
-            <Text style={styles.inputUnit}>kg</Text>
+            <Text style={styles.inputLabel}>Height</Text>
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.growthInput}
+                placeholder="0.0"
+                keyboardType="decimal-pad"
+                value={entryData.growthData.height}
+                onChangeText={(value) => updateGrowthData('height', value)}
+              />
+              <Text style={styles.inputUnit}>cm</Text>
+            </View>
+            
+            <Text style={styles.inputLabel}>Head Circumference</Text>
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.growthInput}
+                placeholder="0.0"
+                keyboardType="decimal-pad"
+                value={entryData.growthData.headCircumference}
+                onChangeText={(value) => updateGrowthData('headCircumference', value)}
+              />
+              <Text style={styles.inputUnit}>cm</Text>
+            </View>
           </View>
-          
-          <Text style={styles.inputLabel}>Height</Text>
-          <View style={styles.inputRow}>
-            <TextInput
-              style={styles.growthInput}
-              placeholder="0.0"
-              keyboardType="decimal-pad"
-              value={entryData.growthData.height}
-              onChangeText={(value) => updateGrowthData('height', value)}
-            />
-            <Text style={styles.inputUnit}>cm</Text>
-          </View>
-          
-          <Text style={styles.inputLabel}>Head Circumference</Text>
-          <View style={styles.inputRow}>
-            <TextInput
-              style={styles.growthInput}
-              placeholder="0.0"
-              keyboardType="decimal-pad"
-              value={entryData.growthData.headCircumference}
-              onChangeText={(value) => updateGrowthData('headCircumference', value)}
-            />
-            <Text style={styles.inputUnit}>cm</Text>
-          </View>
-        </View>
+        )}
 
-        {/* Milestones */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.sectionSubtitle}>Milestones</Text>
-          
-          <View style={styles.addMilestoneContainer}>
-            <TextInput
-              style={styles.milestoneInput}
-              placeholder="Add a new milestone..."
-              value={newMilestone}
-              onChangeText={setNewMilestone}
-            />
-            <TouchableOpacity style={styles.addButton} onPress={addMilestone}>
-              <MaterialIcons name="add" size={24} color="white" />
-            </TouchableOpacity>
+        {/* Milestones - Only show if milestone type is selected */}
+        {entryData.entryTypes.includes('milestone') && (
+          <View style={styles.inputGroup}>
+            <Text style={styles.sectionSubtitle}>Milestones</Text>
+            
+            <View style={styles.addMilestoneContainer}>
+              <TextInput
+                style={styles.milestoneInput}
+                placeholder="Add a new milestone..."
+                value={newMilestone}
+                onChangeText={setNewMilestone}
+              />
+              <TouchableOpacity style={styles.addButton} onPress={addMilestone}>
+                <MaterialIcons name="add" size={24} color="white" />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.milestonesList}>
+              {entryData.milestones.map((milestone, index) => (
+                <View key={index} style={styles.milestoneItem}>
+                  <Text style={styles.milestoneText}>{milestone}</Text>
+                  <TouchableOpacity onPress={() => removeMilestone(index)}>
+                    <MaterialIcons name="close" size={20} color={colors.error} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
           </View>
-          
-          <ScrollView style={styles.milestonesList}>
-            {entryData.milestones.map((milestone, index) => (
-              <View key={index} style={styles.milestoneItem}>
-                <Text style={styles.milestoneText}>{milestone}</Text>
-                <TouchableOpacity onPress={() => removeMilestone(index)}>
-                  <MaterialIcons name="close" size={20} color={colors.error} />
-                </TouchableOpacity>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
+        )}
       </>
     );
   };
@@ -479,7 +649,7 @@ const AddEntryModal = ({ visible, day, onClose, onSave, existingEntry }) => {
     return (
       <>
         <View style={styles.stepHeading}>
-          <Text style={styles.stepTitle}>Photos & Documents</Text>
+          <Text style={styles.stepTitle}>Photos, Audio & Documents</Text>
           <Text style={styles.stepSubtitle}>Add memories and important files</Text>
         </View>
 
@@ -500,11 +670,48 @@ const AddEntryModal = ({ visible, day, onClose, onSave, existingEntry }) => {
           </TouchableOpacity>
         </View>
         
+        {/* Audio Recording Section */}
+        <View style={styles.audioRecordingSection}>
+          <Text style={styles.sectionSubtitle}>Audio Recording</Text>
+          
+          <TouchableOpacity 
+            style={[styles.mediaButton, isRecording && styles.recordingActiveButton]} 
+            onPress={isRecording ? stopRecording : startRecording}
+          >
+            <View style={styles.mediaButtonContent}>
+              {isRecording ? (
+                <>
+                  <FontAwesome5 name="stop" size={22} color="white" />
+                  <Text style={styles.recordingActiveText}>
+                    Recording... {formatTime(recordingTime)}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <FontAwesome5 name="microphone" size={22} color={colors.primary} />
+                  <Text style={styles.mediaButtonText}>Record Audio</Text>
+                </>
+              )}
+            </View>
+          </TouchableOpacity>
+        </View>
+
         <ScrollView style={styles.mediaGallery} contentContainerStyle={styles.mediaGalleryContent}>
           {entryData.mediaItems.map((item, index) => (
             <View key={index} style={styles.mediaItem}>
               {item.type === 'image' ? (
                 <Image source={{ uri: item.uri }} style={styles.mediaImage} />
+              ) : item.type === 'audio' ? (
+                <TouchableOpacity 
+                  style={styles.audioItem}
+                  onPress={() => playAudio(item.uri)}
+                >
+                  <FontAwesome5 name="play" size={18} color={colors.primary} />
+                  <View style={styles.audioItemDetails}>
+                    <Text style={styles.audioItemText}>Audio {index + 1}</Text>
+                    <Text style={styles.audioDuration}>{formatTime(item.duration)}</Text>
+                  </View>
+                </TouchableOpacity>
               ) : (
                 <View style={styles.documentItem}>
                   <FontAwesome5 name="file-alt" size={24} color={colors.primary} />
@@ -562,12 +769,14 @@ const AddEntryModal = ({ visible, day, onClose, onSave, existingEntry }) => {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <TouchableOpacity onPress={onClose}>
-                <MaterialIcons name="close" size={24} color={colors.textGray} />
+                <View>
+                  <MaterialIcons name="close" size={24} color={colors.textGray} />
+                </View>
               </TouchableOpacity>
               <Text style={styles.modalTitle}>
                 {existingEntry ? 'Edit Entry' : 'New Entry'}{day ? ` - ${getFormattedDate()}` : ''}
               </Text>
-              <View style={{ width: 24 }} /> {/* Empty view for alignment */}
+              <View style={{ width: 24 }} />
             </View>
             
             {renderStepIndicators()}
@@ -590,20 +799,22 @@ const AddEntryModal = ({ visible, day, onClose, onSave, existingEntry }) => {
                 </TouchableOpacity>
               )}
               
-              {currentStep < 3 ? (
+              {hasMoreSteps() ? (
                 <TouchableOpacity 
                   style={[styles.nextButton, currentStep === 1 && !currentStep > 1 && styles.fullWidthButton]}
                   onPress={handleNextStep}
                 >
                   <Text style={styles.nextButtonText}>Next</Text>
-                  <MaterialIcons name="arrow-forward" size={20} color="#FFFFFF" />
+                  <View>
+                    <MaterialIcons name="arrow-forward" size={20} color="#FFFFFF" />
+                  </View>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity 
-                  style={[styles.submitButton, currentStep === 3 && !currentStep > 1 && styles.fullWidthButton]}
+                  style={[styles.submitButton, (currentStep === 1 || currentStep === 3) && !currentStep > 1 && styles.fullWidthButton]}
                   onPress={handleSave}
                 >
-                  <Text style={styles.submitButtonText}>Save Entry</Text>
+                  <Text style={styles.submitButtonText}>Save</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -975,7 +1186,72 @@ const styles = StyleSheet.create({
     fullWidthButton: {
       width: '100%',
       maxWidth: '100%',
-    }
+    },
+    /* Audio Recording Specific Styles */
+    audioRecordingSection: {
+      marginVertical: 20,
+    },
+    mediaButtonContent: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: '100%',
+    },
+    recordingActiveButton: {
+      backgroundColor: '#E53935',
+      borderColor: '#E53935',
+      width: '100%',
+    },
+    recordingActiveText: {
+      marginTop: 8,
+      color: 'white',
+      fontSize: 14,
+      fontWeight: '500',
+    },
+  recordingInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  recordingIndicator: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: 'red',
+    marginRight: 10,
+  },
+  recordingText: {
+    fontSize: 16,
+    color: '#E53935',
+    fontWeight: '500',
+  },
+  stopRecordingButton: {
+    backgroundColor: '#E53935',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  audioItem: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#F0F8FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+  },
+  audioItemDetails: {
+    marginLeft: 10,
+  },
+  audioItemText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.textDark,
+  },
+  audioDuration: {
+    fontSize: 12,
+    color: colors.textGray,
+    marginTop: 3,
+  }
   });
 
   export default AddEntryModal;
